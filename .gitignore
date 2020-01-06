@@ -1,0 +1,5 @@
+# Stuff not to track
+./dataset/*
+./cvlab_toolbox/*
+__pycache__/*
+.vscode/*
