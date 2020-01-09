@@ -4,6 +4,7 @@ from collections import defaultdict
 import pandas as pd
 import numpy as np
 
+from scipy.constants import g
 from torch.utils.data import Dataset, DataLoader
 
 class SLJDataset(Dataset):
@@ -25,10 +26,11 @@ class SLJDataset(Dataset):
     
     def __getitem__(self, idx):
         pose = self.get_pose(self.pose_paths[idx])
+        trunc_pose = pose[:self.get_land_time(pose)]
         grf = self.get_grf(self.grf_paths[idx])
         label = self.get_label(idx)
 
-        sample = {'pose':pose, 'grf':grf, 'label':label}
+        sample = {'pose':pose, 'trunc_pose': trunc_pose,'grf':grf, 'label':label}
 
         for transform in self.transforms:
             sample = transform(sample)
@@ -96,6 +98,30 @@ class SLJDataset(Dataset):
                 raise KeyError(row.足関節不安定性の分類)
 
         return pd.DataFrame(labels, index =['miss', 'healthy', 'structural', 'subjective', 'recovered', 'prone'] ).T.values
+
+    def get_land_time(self, pose, n=20):
+        foot_idxs = [1, 18, 24] + [14, 27] + [12, 13, 15, 16, 17, 19]
+        
+        # Highest point of foot_idxs
+        t = self.__dict__.get('t', 0)
+        if not t:
+            mx = 0
+            for i in range(self.__len__()):
+                _pose = self.get_pose(self.pose_paths[i])
+                foot_ave = np.average(_pose[:, foot_idxs, 1], axis=1)
+                mx = max(mx, max(foot_ave))
+            t = np.ceil(np.sqrt(2*(mx+0.3)/g)*100).astype(int) # g is gravity scipy constant
+            self.t = t# should be mx = 0.44416272727272726 
+
+        foot_ave = np.average(pose[:, foot_idxs, 1], axis=1)
+
+        w = [1.0/n]*n # Smoothing window
+        smoothed = np.convolve(foot_ave, w[::-1], 'valid')
+        
+        jump_time = np.argmax(smoothed)
+        land_time = jump_time+np.argmin(smoothed[jump_time:jump_time+t])
+        
+        return land_time
 
 def edgepad(sample, mx_len):
     pose = sample['pose']
